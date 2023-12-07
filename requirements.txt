@@ -1,0 +1,6 @@
+opencv-python
+albumentations
+tqdm
+matplotlib
+pandas
+seaborn
