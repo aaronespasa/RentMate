@@ -10,3 +10,5 @@ plotly
 nbformat
 pytorch-lightning
 geopy
+folium
+base64
