@@ -118,6 +118,7 @@ esas
 ese
 eso
 esos
+está
 esta
 estaba
 estabais
@@ -291,8 +292,10 @@ lo
 los
 luego
 lugar
+madrid
 manera
 manifestó
+más
 mayor
 me
 mediante
@@ -443,6 +446,7 @@ suya
 suyas
 suyo
 suyos
+se
 sí
 sólo
 tal
