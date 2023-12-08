@@ -8,3 +8,4 @@ nltk
 gensim
 plotly
 nbformat
+geopy
