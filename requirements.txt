@@ -8,4 +8,5 @@ nltk
 gensim
 plotly
 nbformat
+pytorch-lightning
 geopy
