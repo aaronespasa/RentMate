@@ -7,12 +7,13 @@ from sklearn.preprocessing import OneHotEncoder
 import numpy as np
 from gensim.models import FastText
 
-class RegressionDataFrameDataset(Dataset):
+class RentingRegressionDataset(Dataset):
     def __init__(self, dataframe, type_encoder, is_train=True):
         self.data = dataframe
         self.data.drop('_id', axis=1, inplace=True)
         self.data.drop('Deposit', axis=1, inplace=True)
         self.data.drop('Location', axis=1, inplace=True)
+        self.data.drop('Cardinality', axis=1, inplace=True)
         self.embeddings_model = FastText.load("models/fastText_model")
 
         # Apply label encoding to 'Floor' column
@@ -58,8 +59,28 @@ class RegressionDataFrameDataset(Dataset):
     
     @staticmethod
     def extract_floor_number(floor):
+        """
+        Extracts the floor number from the 'Floor' column. There are several different values for this column,
+        so we need to handle them all.
+
+        You can look at the data to see the different values of the 'Floor' column:
+        [x for x in df['Floor'].unique() if 'planta ' not in x or 'entreplanta' in x].
+
+        Here are the values that are different from 'planta X' (where X is a number)
+        and 'entreplanta', along with the values that we will assign to them:
+
+            * 'bajo exterior', 'bajo interior', 'bajo': 0
+            * 'semi-sótano interior', 'semi-sótano exterior': -1
+            * 'sótano interior', 'sótano exterior': -2
+        
+        And the rest of the values are very differentiated to make them more "neutral":
+
+            * 'entreplanta interior', 'entreplanta exterior': 2
+            * 'exterior', 'interior': -999
+            * 'no aplica': 999
+        """
         if 'entreplanta' in floor:
-            return -100
+            return 2
         if 'planta' in floor:
             # Extraer y devolver el número de planta
             floor_number = floor.split()[1]
@@ -96,15 +117,15 @@ class RegressionDataModule(LightningDataModule):
 
     def setup(self, stage=None):
         # Split data into train, validation, and test sets
-        train_val_df, test_df = train_test_split(self.dataframe, test_size=0.2)
-        train_df, val_df = train_test_split(train_val_df, test_size=0.25) # 0.25 x 0.8 = 0.2
+        train_val_df, test_df = train_test_split(self.dataframe, test_size=0.05) # (test: 5% of the original data)
+        train_df, val_df = train_test_split(train_val_df, test_size=0.2) # 0.2 x 0.95 = 0.19 (vaL: 19% of the original data)
 
         # Fit the OneHotEncoder here using only the training data
         self.type_encoder.fit(train_df[['Type']])
 
-        self.train_dataset = RegressionDataFrameDataset(train_df, self.type_encoder, is_train=True)
-        self.val_dataset = RegressionDataFrameDataset(val_df, self.type_encoder, is_train=False)
-        self.test_dataset = RegressionDataFrameDataset(test_df, self.type_encoder, is_train=False)
+        self.train_dataset = RentingRegressionDataset(train_df, self.type_encoder, is_train=True)
+        self.val_dataset = RentingRegressionDataset(val_df, self.type_encoder, is_train=False)
+        self.test_dataset = RentingRegressionDataset(test_df, self.type_encoder, is_train=False)
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
@@ -117,7 +138,7 @@ class RegressionDataModule(LightningDataModule):
 
 # Example usage
 if __name__ == "__main__":
-    df = pd.read_csv('data/preprocessed_data.csv')
+    df = pd.read_csv('data/lat_long_preprocessed_data.csv')
     data_module = RegressionDataModule(df, batch_size=64)
     data_module.setup()
 

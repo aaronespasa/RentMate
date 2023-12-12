@@ -3,6 +3,7 @@ albumentations
 tqdm
 matplotlib
 pandas
+scipy
 seaborn
 nltk
 gensim
@@ -11,4 +12,4 @@ nbformat
 pytorch-lightning
 geopy
 folium
-base64
+xgboost
