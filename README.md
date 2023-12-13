@@ -1,6 +1,11 @@
 # RentMate
-## Set-Up Environment 🌲 
-### Install the necessary dependencies
+## Set-Up Environment 🌲
+
+Here's how you can set-up the project:
+
+![Project Diagram](https://github.com/aaronespasa/RentMate/blob/main/project-diagram.png)
+
+### Follow these steps to install the necessary dependencies
 1. Create an environmental file:
 ```sh
 $ python -m venv venv
