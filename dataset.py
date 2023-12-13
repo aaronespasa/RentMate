@@ -20,43 +20,45 @@ class RentingRegressionDataset(Dataset):
         self.data['Floor'] = self.data['Floor'].apply(self.extract_floor_number)
 
         # Convert specified boolean columns to integers
-        boolean_columns = ['Storage room', 'Wardrobe', 'Furnished', 'Equipped kitchen', 'Renovation', 
+        self.boolean_columns = ['Storage room', 'Wardrobe', 'Furnished', 'Equipped kitchen', 'Renovation', 
                            'Reduced mobility', 'Heating', 'Garage', 'Elevator', 'Air conditioning',
                             'Swimming pool', 'Garden', 'Green areas', 'Terrace']
-        self.data[boolean_columns] = self.data[boolean_columns].astype(int)
+        self.data[self.boolean_columns] = self.data[self.boolean_columns].astype(int)
 
         # One-hot encoding for 'Type' column
         self.type_encoder = type_encoder
-        types_encoded = self.type_encoder.transform(self.data[['Type']])
+        self.types_encoded = self.type_encoder.transform(self.data[['Type']])
 
         # Convert 'Description' to embeddings
         self.descriptions = self.convert_to_embeddings(self.data['Description'])
 
         # Combine all features
-        self.features = np.hstack([types_encoded, self.descriptions, self.data.drop(columns=['Type', 'Description', 'Price'])])
+        self.features = np.hstack([self.types_encoded, self.descriptions, self.data.drop(columns=['Type', 'Description', 'Price'])])
+        self.feature_names = \
+            ["_".join(feature.split()) for feature in self.type_encoder.get_feature_names_out()] + \
+            ['Description_' + str(i) for i in range(self.descriptions.shape[1])] + \
+            list(self.data.drop(columns=['Type', 'Description', 'Price']).columns)
 
         self.targets = self.data['Price'].values
 
     def convert_to_embeddings(self, descriptions):
-        embeddings = []
-
-        for desc in descriptions:
-            # Split the description into words and filter out empty words
-            words = [word for word in desc.split() if word]
-
-            # Get embeddings for each word and average them
-            word_embeddings = [self.embeddings_model.wv[word] for word in words if word in self.embeddings_model.wv]
-            if word_embeddings:
-                desc_embedding = np.mean(word_embeddings, axis=0)
-            else:
-                # Handle case with no words in model's vocabulary
-                desc_embedding = np.zeros(self.embeddings_model.vector_size)
-
-            embeddings.append(desc_embedding)
-
-        return np.array(embeddings)
-        # return np.random.randn(len(descriptions), 128)
+        return np.array([self.text_to_embeddings(desc) for desc in descriptions])
     
+    def text_to_embeddings(self, text):
+        """Converts a text description to a vector embedding by averaging the embeddings of the words in the description."""
+        # Split the description into words and filter out empty words
+        words = [word for word in text.split() if word]
+
+        # Get embeddings for each word and average them
+        word_embeddings = [self.embeddings_model.wv[word] for word in words if word in self.embeddings_model.wv]
+        if word_embeddings:
+            desc_embedding = np.mean(word_embeddings, axis=0)
+        else:
+            # Handle case with no words in model's vocabulary
+            desc_embedding = np.zeros(self.embeddings_model.vector_size)
+        
+        return desc_embedding
+
     @staticmethod
     def extract_floor_number(floor):
         """
