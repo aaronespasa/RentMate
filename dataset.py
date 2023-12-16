@@ -1,4 +1,5 @@
 import torch
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 import pandas as pd
@@ -6,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder, QuantileTransformer
 import numpy as np
 from gensim.models import FastText
+from transformers import AutoTokenizer
 
 class RentingRegressionDataset(Dataset):
     def __init__(self, dataframe, type_encoder, model, is_train=True):
@@ -34,23 +36,40 @@ class RentingRegressionDataset(Dataset):
             self._normalize_numeric_columns()
         
         # save dataset head to csv
-        self.data.head().to_csv('data/dataset_head.csv')
+        # self.data.head().to_csv('data/dataset_head.csv')
 
         # One-hot encoding for 'Type' column
         self.type_encoder = type_encoder
         self.types_encoded = self.type_encoder.transform(self.data[['Type']])
 
-        # Convert 'Description' to embeddings
-        self.descriptions = self.convert_to_embeddings(self.data['Description'])
-
         # Combine all features
-        self.features = np.hstack([self.types_encoded, self.descriptions, self.data.drop(columns=['Type', 'Description', 'Price'])])
-        self.feature_names = \
-            ["_".join(feature.split()) for feature in self.type_encoder.get_feature_names_out()] + \
-            ['Description_' + str(i) for i in range(self.descriptions.shape[1])] + \
-            list(self.data.drop(columns=['Type', 'Description', 'Price']).columns)
+        self.numerical_features = self.data.drop(columns=['Type', 'Description', 'Price'])
+
+        # Bert tokenizer and model in case we need it
+        if self.model == "beto":
+            self.bert_tokenizer = AutoTokenizer.from_pretrained('dccuchile/bert-base-spanish-wwm-uncased')
+            self.input_ids, self.attention_mask = self.get_bert_inputs_array(self.data['Description'])
+            # self.feature_names = \
+            #     ["_".join(feature.split()) for feature in self.type_encoder.get_feature_names_out()] + \
+            #     ... \
+            #     list(self.numerical_features.columns)
+
+        if self.model == "xgboost":
+            # Convert 'Description' to embeddings
+            self.descriptions = self.convert_to_embeddings(self.data['Description'])
+            self.features = np.hstack([self.types_encoded, self.descriptions, self.numerical_features])
+            self.feature_names = \
+                ["_".join(feature.split()) for feature in self.type_encoder.get_feature_names_out()] + \
+                ['Description_' + str(i) for i in range(self.descriptions.shape[1])] + \
+                list(self.numerical_features.columns)
 
         self.targets = self.data['Price'].values
+
+        # print("numerical_features: ", torch.tensor(self.numerical_features.to_numpy(), dtype=torch.float).shape)
+        # print("types_encoded: ", torch.tensor(self.types_encoded, dtype=torch.float).shape)
+        # print("input_ids: ", torch.tensor(self.input_ids, dtype=torch.float).shape)
+        # print("attention_mask: ", torch.tensor(self.attention_mask, dtype=torch.float).shape)
+        # print("target: ", torch.tensor(self.targets, dtype=torch.float).shape)
 
     def _normalize_numeric_columns(self):
         for column in self.numeric_columns:
@@ -75,6 +94,25 @@ class RentingRegressionDataset(Dataset):
             desc_embedding = np.zeros(self.embeddings_model.vector_size)
         
         return desc_embedding
+
+    def get_bert_inputs_array(self, descriptions):
+        """Returns two arrays: one with the input ids and one with the attention masks for each description."""
+        input_ids = []
+        attention_masks = []
+        for desc in descriptions:
+            input_id, att_mask = self.get_bert_inputs(desc)
+            input_ids.append(input_id.squeeze(0))
+            attention_masks.append(att_mask.squeeze(0))
+        
+        # Padding the sequences to have the same length
+        input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=self.bert_tokenizer.pad_token_id)
+        attention_masks_padded = pad_sequence(attention_masks, batch_first=True, padding_value=0)
+
+        return input_ids_padded, attention_masks_padded
+
+    def get_bert_inputs(self, text):
+        inputs = self.bert_tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
+        return inputs['input_ids'], inputs['attention_mask']
 
     @staticmethod
     def extract_floor_number(floor):
@@ -123,7 +161,15 @@ class RentingRegressionDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        return torch.tensor(self.features[idx], dtype=torch.float), torch.tensor(self.targets[idx], dtype=torch.float)
+        if self.model == "beto":
+            # return numerical, categorical, and text features as well as the target
+            return torch.tensor(self.numerical_features.iloc[idx].values, dtype=torch.float), \
+                   torch.tensor(self.types_encoded[idx], dtype=torch.float), \
+                   self.input_ids[idx].clone().detach().to(dtype=torch.long), \
+                   self.attention_mask[idx].clone().detach().to(dtype=torch.long), \
+                   torch.tensor(self.targets[idx], dtype=torch.float)
+        elif self.model == "xgboost":
+            return torch.tensor(self.features[idx], dtype=torch.float), torch.tensor(self.targets[idx], dtype=torch.float)
 
 class RegressionDataModule(LightningDataModule):
     def __init__(self, dataframe, batch_size=32, model="xgboost"):
@@ -163,10 +209,17 @@ class RegressionDataModule(LightningDataModule):
 # Example usage
 if __name__ == "__main__":
     df = pd.read_csv('data/lat_long_preprocessed_data.csv')
-    data_module = RegressionDataModule(df, batch_size=64, model="beto")
+    model = "beto"
+    data_module = RegressionDataModule(df, batch_size=64, model=model)
     data_module.setup()
 
-    # for batch in data_module.train_dataloader():
-    #     x, y = batch
-    #     print(x.shape, y.shape)
-    #     break
+    if model == "xgboost":
+        for batch in data_module.train_dataloader():
+            x, y = batch
+            print(x.shape, y.shape) 
+            break
+    elif model == "beto":
+        for batch in data_module.train_dataloader():
+            numerical_features, categorical_features, input_ids, attention_mask, target = batch
+            print(numerical_features.shape, categorical_features.shape, input_ids.shape, attention_mask.shape, target.shape)
+            break
