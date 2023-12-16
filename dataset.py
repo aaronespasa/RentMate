@@ -3,18 +3,19 @@ from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, QuantileTransformer
 import numpy as np
 from gensim.models import FastText
 
 class RentingRegressionDataset(Dataset):
-    def __init__(self, dataframe, type_encoder, is_train=True):
+    def __init__(self, dataframe, type_encoder, model, is_train=True):
         self.data = dataframe
         self.data.drop('_id', axis=1, inplace=True)
         self.data.drop('Deposit', axis=1, inplace=True)
         self.data.drop('Location', axis=1, inplace=True)
         self.data.drop('Cardinality', axis=1, inplace=True)
         self.embeddings_model = FastText.load("models/fastText_model")
+        self.model = model
 
         # Apply label encoding to 'Floor' column
         self.data['Floor'] = self.data['Floor'].apply(self.extract_floor_number)
@@ -24,6 +25,16 @@ class RentingRegressionDataset(Dataset):
                            'Reduced mobility', 'Heating', 'Garage', 'Elevator', 'Air conditioning',
                             'Swimming pool', 'Garden', 'Green areas', 'Terrace']
         self.data[self.boolean_columns] = self.data[self.boolean_columns].astype(int)
+
+        # add floor and check the df head as it was causing problems
+        self.numeric_columns = ['Built square meters', 'Plot square meters', 'Rooms', 'Bathrooms', 'Latitude', 'Longitude',
+                                'Mean Price Location', 'Median Price Location', 'Std Price Location', 'Mean Price Type Location',
+                                'Median Price Type Location', 'Std Price Type Location', 'Floor'] + self.boolean_columns
+        if self.model == "beto":
+            self._normalize_numeric_columns()
+        
+        # save dataset head to csv
+        self.data.head().to_csv('data/dataset_head.csv')
 
         # One-hot encoding for 'Type' column
         self.type_encoder = type_encoder
@@ -40,6 +51,12 @@ class RentingRegressionDataset(Dataset):
             list(self.data.drop(columns=['Type', 'Description', 'Price']).columns)
 
         self.targets = self.data['Price'].values
+
+    def _normalize_numeric_columns(self):
+        for column in self.numeric_columns:
+            n_quantiles = min(1000, self.data[column].shape[0])
+            self.data[column] = QuantileTransformer(n_quantiles=n_quantiles, output_distribution='normal') \
+                                    .fit_transform(self.data[[column]])
 
     def convert_to_embeddings(self, descriptions):
         return np.array([self.text_to_embeddings(desc) for desc in descriptions])
@@ -109,13 +126,18 @@ class RentingRegressionDataset(Dataset):
         return torch.tensor(self.features[idx], dtype=torch.float), torch.tensor(self.targets[idx], dtype=torch.float)
 
 class RegressionDataModule(LightningDataModule):
-    def __init__(self, dataframe, batch_size=32):
+    def __init__(self, dataframe, batch_size=32, model="xgboost"):
         super().__init__()
         self.dataframe = dataframe
         self.batch_size = batch_size
         # - handle_unknown='ignore' tells the encoder to ignore any categories in the validation/test set that were not present in the training set
         # - sparse_output=False to return a numpy array instead of a sparse matrix
-        self.type_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False) 
+        self.type_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+
+        self.possible_models = ["xgboost", "beto"]
+        if model not in self.possible_models:
+            raise ValueError(f"Model must be one of {self.possible_models}")
+        self.model = model
 
     def setup(self, stage=None):
         # Split data into train, validation, and test sets
@@ -125,9 +147,9 @@ class RegressionDataModule(LightningDataModule):
         # Fit the OneHotEncoder here using only the training data
         self.type_encoder.fit(train_df[['Type']])
 
-        self.train_dataset = RentingRegressionDataset(train_df, self.type_encoder, is_train=True)
-        self.val_dataset = RentingRegressionDataset(val_df, self.type_encoder, is_train=False)
-        self.test_dataset = RentingRegressionDataset(test_df, self.type_encoder, is_train=False)
+        self.train_dataset = RentingRegressionDataset(train_df, self.type_encoder, self.model, is_train=True)
+        self.val_dataset = RentingRegressionDataset(val_df, self.type_encoder, self.model, is_train=False)
+        self.test_dataset = RentingRegressionDataset(test_df, self.type_encoder, self.model, is_train=False)
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
@@ -141,9 +163,10 @@ class RegressionDataModule(LightningDataModule):
 # Example usage
 if __name__ == "__main__":
     df = pd.read_csv('data/lat_long_preprocessed_data.csv')
-    data_module = RegressionDataModule(df, batch_size=64)
+    data_module = RegressionDataModule(df, batch_size=64, model="beto")
     data_module.setup()
 
-    for batch in data_module.train_dataloader():
-        x, y = batch
-        print(x.shape, y.shape)
+    # for batch in data_module.train_dataloader():
+    #     x, y = batch
+    #     print(x.shape, y.shape)
+    #     break
