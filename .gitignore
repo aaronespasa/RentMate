@@ -165,3 +165,4 @@ lightning_logs/
 fastText_model
 fastText_model.wv.vectors_ngrams.npy
 models/checkpoints/
+models/metrics.txt
