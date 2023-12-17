@@ -49,9 +49,10 @@ class RentingRegressionDataset(Dataset):
         if self.model == "beto":
             self.bert_tokenizer = AutoTokenizer.from_pretrained('dccuchile/bert-base-spanish-wwm-uncased')
             self.input_ids, self.attention_mask = self.get_bert_inputs_array(self.data['Description'])
+            # 768 is the size of the bert embeddings
             # self.feature_names = \
+            #     ['Description_' + str(i) for i in range(768)] + \
             #     ["_".join(feature.split()) for feature in self.type_encoder.get_feature_names_out()] + \
-            #     ... \
             #     list(self.numerical_features.columns)
 
         if self.model == "xgboost":

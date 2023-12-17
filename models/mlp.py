@@ -8,7 +8,7 @@ class MLP(nn.Module):
        in order to predict the price of a renting (regression task).
     """
 
-    def __init__(self, input_dim, output_dim, num_hidden_layers, hidden_dimensions, dropout_prob=0.5):
+    def __init__(self, input_dim, output_dim, num_hidden_layers, hidden_dimensions, dropout_prob=0.1):
         super().__init__()
         self.input_dim = input_dim
         self.out_dim = output_dim

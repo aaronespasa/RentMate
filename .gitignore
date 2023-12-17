@@ -164,3 +164,4 @@ lightning_logs/
 # embeddings models
 fastText_model
 fastText_model.wv.vectors_ngrams.npy
+models/checkpoints/

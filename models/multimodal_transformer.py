@@ -1,16 +1,14 @@
 import torch
 from torch import nn
 from transformers import BertForSequenceClassification, AutoModel, AutoConfig, logging
-from mlp import MLP
-from loss.rmse import RMSELoss
 
-# import R2Score from PyTorch Lightning
-from torchmetrics.regression.r2 import R2Score
+from models.mlp import MLP # change this to from mlp import MLP if you're running this file directly
+# from mlp import MLP
 
 # disable verbosity warnings from transformers
 logging.set_verbosity_error()
 
-class BertConcatFeatures(BertForSequenceClassification):
+class MultimodalTransformerRegressor(BertForSequenceClassification):
     """
     A model for regression which combines text, categorical and numberical features.
     The text features are processed with a BERT model, and the categorical and numerical
@@ -51,7 +49,7 @@ class BertConcatFeatures(BertForSequenceClassification):
 
         self.mlp = MLP(input_dim=self.mlp_input_dim, output_dim=self.num_labels, num_hidden_layers=len(dims), hidden_dimensions=dims)
 
-    def forward(self, input_ids, attention_mask, categorical_features, numerical_features, target_price):
+    def forward(self, input_ids, attention_mask, categorical_features, numerical_features):
         ###########################################
         # 1. Run the BERT model on the text input #
         ###########################################
@@ -79,32 +77,17 @@ class BertConcatFeatures(BertForSequenceClassification):
         ###########################################
         output = self.mlp(combined_features).squeeze(-1)
 
-        ###########################################
-        # 4. Compute the loss and the metrics     #
-        ###########################################
-        mseloss = nn.MSELoss()(output, target_price).item()
-        maeloss = nn.L1Loss()(output, target_price).item()
-        rmse = RMSELoss()(output, target_price).item()
-        r2 = R2Score()(output, target_price).item()
-
-        results = {
-            "mseloss": mseloss,
-            "maeloss": maeloss,
-            "rmse": rmse,
-            "r2": r2,
-            'logits': output,
-        }
-
-        return results
+        return output
 
 if __name__ == "__main__":
-    # Example usage
-    import pandas as pd
-
     import os
     import sys
+    # Example usage
+    import pandas as pd
+    from torchmetrics.regression.r2 import R2Score
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     from dataset import RegressionDataModule
+    from utils.loss.rmse import RMSELoss
     
     df = pd.read_csv('data/lat_long_preprocessed_data.csv')
     model = "beto"
@@ -117,19 +100,23 @@ if __name__ == "__main__":
         numerical_features, categorical_features, input_ids, attention_mask, target = batch
         break
 
-    model = BertConcatFeatures(cat_feat_dim=categorical_features.shape[1],
-                               numerical_feat_dim=numerical_features.shape[1])
+    model = MultimodalTransformerRegressor(cat_feat_dim=categorical_features.shape[1],
+                                           numerical_feat_dim=numerical_features.shape[1])
     
     output = model(input_ids=input_ids,
                    attention_mask=attention_mask,
                    categorical_features=categorical_features,
-                   numerical_features=numerical_features,
-                   target_price=target)
+                   numerical_features=numerical_features)
+    
+    mseloss = nn.MSELoss()(output, target).item()
+    maeloss = nn.L1Loss()(output, target).item()
+    rmse = RMSELoss()(output, target).item()
+    r2 = R2Score()(output, target).item()
 
     # print the output beautifully
-    print("MSE Loss:", output["mseloss"])
-    print("MAE Loss:", output["maeloss"])
-    print("RMSE:", output["rmse"])
-    print("R2:", output["r2"])
-    print("Logits shape:", output["logits"].shape)
+    print("MSE Loss:", mseloss)
+    print("MAE Loss:", maeloss)
+    print("RMSE:", rmse)
+    print("R2:", r2)
+    print("Logits shape:", output.shape)
 
